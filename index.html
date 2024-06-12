@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>経路最適化</title>
+  <style>
+    body {
+        display: flex;
+        background-color: #2e2e2e; 
+        color: #e6e6e6;
+    }
+    canvas {
+        position: relative;
+        border: 1px solid #F4F2EE;
+        height: 550px;
+        width: 550px;
+    }
+    #routeInfo {
+        margin-left: 20px;
+        margin-right: 30px;
+    }
+    #routeBlock{
+      margin-bottom: 13px;
+      height: 145px;
+      overflow: auto;
+    }
+    #optimizePointsBlock{
+      margin-bottom:13px;
+      height: 75px;
+      overflow: auto;
+    }
+    #indent{
+      display: inline-block;
+	    width:8em;
+    }
+    #indent1{
+      display: inline-block;
+	    width:8em;
+    }
+    .space {
+        display: inline-block;
+        width: 0.6em; /* "1" と同じ幅の空白を挿入 */
+    }
+    input[type="number"] {
+      width: 45px;
+    }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input::placeholder {
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gridCanvas" width="550" height="550"></canvas>
+  
+  <div id="routeInfo">
+    <h3>Route Information</h3>
+    <div><span id="indent">Start Point</span>: <span id="startPoint"></span></div>
+    <div><span id="indent">End Point</span>: <span id="endPoint"></span></div>
+    <div><span id="indent">Current Point</span>: <span id="currentPoint"></span></div>
+    <div><span id="indent">Process</span>: <span id="algorithm"></span></div>
+    <div><span id="indent">Optimize Order</span>: <span id="optimizeOrder"></span></div>
+    Route :
+    <div id="routeBlock">
+      <div> <span id="routeDisplay"></span></div>
+    </div>
+    Optimizable Points :
+    <div id="optimizePointsBlock">
+      <div> <span id="optimizablePoints"></span></div>
+    </div>
+    <input type="number" id="routeLength" placeholder="length">
+    <button id="regenerate">regenerate</button>
+    <button id="nextStep">next step</button>
+    <button id='change'>change optimize order</button>
+    <br>
+    <button id="automatic">optimize automatically</button>
+    <label><input type="range" id = "speed" min="0" max="950" value = "750">speed</label>
+    <br>
+    <button id="manual">manual route config</button>
+    <button id="undo">undo</button>
+    <button id="reset">reset</button>
+  </div>
+
+  <script>
+  class Point {
+    constructor(x, y) {
+      this.x = x;
+      this.y = y;
+    }
+  
+    equals(point) {
+      return this.x === point.x && this.y === point.y;
+    }
+  }
+  
+  class Grid {
+    constructor() {
+      this.route = [];
+      this.order = "sequential";
+    }S
+  
+    initializeRoute(){
+      var startX = Math.floor(Math.random() * 6 + 2);
+      var startY = Math.floor(Math.random() * 6 + 2);
+      const startPoint = new Point(startX, startY);
+      this.route.push(startPoint);
+      let currentPoint = startPoint;
+      let prevPoint = startPoint;
+      let nextPoint = startPoint;
+
+      let length = document.getElementById('routeLength').value - 1;
+      if(length == -1) length = 29;
+      
+      for(let i = 0; i < length; i++) {
+        const neighbors = this.getNeighbors(currentPoint);
+        
+        let nextPoint = neighbors[Math.floor(Math.random() * neighbors.length)];
+
+        //端に向かいそうなら再抽選
+        let count = 0;
+        if(currentPoint.x < 3 && nextPoint.x < currentPoint.x || currentPoint.x > 6 && nextPoint.x > currentPoint.x
+           || currentPoint.y < 3 && nextPoint.y < currentPoint.y || currentPoint.y > 6 && nextPoint.y > currentPoint.y){
+          nextPoint = neighbors[Math.floor(Math.random() * neighbors.length)];
+        }
+        //1回通ったルータなら5回まで再抽選
+        count = 0;
+        while(this.route.some(p => p.x == nextPoint.x && p.y == nextPoint.y) && count < 3){
+          nextPoint = neighbors[Math.floor(Math.random() * neighbors.length)];
+          count++;
+        }
+        
+        this.route.push(nextPoint);
+        prevPoint = currentPoint;
+        currentPoint = nextPoint;
+      }
+      for(let i = 0; i < this.route.length; i++){
+        console.log()
+      }
+    }
+  
+    getNeighbors(point) {
+      const directions = [
+        { x: 0, y: 1 }, // up
+        { x: 1, y: 0 }, // right
+        { x: 0, y: -1 }, // down
+        { x: -1, y: 0 }, // left
+      ];
+      
+      //隣接した点のうち、範囲内のものを返す
+      const neighbors = directions.map(dir => new Point(point.x + dir.x, point.y + dir.y))
+        .filter(p => p.x >= 0 && p.x < 10 && p.y >= 0 && p.y < 10);
+  
+      return neighbors;
+    }
+  
+
+    getAngle(i){
+      if(i <= 0 || i >= this.route.length - 1)
+        return 360;
+
+      const p1 = this.route[i - 1];
+      const p2 = this.route[i];
+      const p3 = this.route[i + 1];
+
+      //console.log("i : " + i);
+      
+      //console.log(p1);
+
+      let getDirection = (a, b) => {
+        if (b.x - a.x === 1) return 0;
+        if (b.x - a.x === -1) return 2;
+        if (b.y - a.y === 1) return 3;
+        if (b.y - a.y === -1) return 1;
+      };
+
+      const d1 = getDirection(p1, p2);
+      const d2 = getDirection(p3, p2);
+
+      //console.log("p1 : (" + p1.x + ", " + p1.y + ") p2 : (" + p2.x + ", " + p2.y + ") p3 : (" + p3.x + ", " + p3.y + ")");
+      //console.log("d1 : " + d1  + ", d2 : " + d2);
+
+      switch((4 + (d2 - d1)) % 4){
+        case 0 : return 0;
+        case 1 : return 90;
+        case 2 : return 180;
+        case 3 : return 270;
+      }      
+    }
+
+    //最適化可能な点を探索
+    checkOptimize(){
+      let ret = [];
+      for(let i = 0; i < this.route.length; i++){
+        //console.log("Optimize i : " + i);
+        //console.log(this.route[i]);
+        let state1 = false;
+        let state2 = false;
+        let state3 = false;
+        
+        if(this.getAngle(i + 1) == 0)
+          state1 = true;
+        if(this.getAngle(i) == 90 && this.getAngle(i + 1) == 90 || this.getAngle(i) == 270 && this.getAngle(i + 1) == 270)
+          state2 = true;
+        if(this.getAngle(i - 1) == 180 && this.getAngle(i) == 90 || this.getAngle(i - 1) == 180 && this.getAngle(i) == 270)
+          state3 = true; 
+        
+        //console.log("i : " + (i + 1));
+        //console.log(this.getAngle(i - 1));
+        //console.log(this.getAngle(i));
+        //console.log(this.getAngle(i + 1));
+        
+        //console.log(state1 +"," + state2 +"," + state3);
+
+        if(state3)
+          ret.push({index: i, algorithm: 3, isExecuted: false});
+        else if(state2)
+          ret.push({index: i, algorithm: 2, prevPoint: this.route[i - 1], isExecuted: false});
+        else if(state1)
+          ret.push({index: i, algorithm: 1, isExecuted: false});
+      }
+      for(let i = 0; i < ret.length; i++){
+        if(i != 0){
+          //同じルータではzigzag優先
+          if(ret[i].algorithm == 3 && ret[i].index == (ret[i - 1].index + 1)){
+            ret.splice(i - 1, 1);
+          }else if(ret[i].algorithm == 2 && ret[i].index == (ret[i - 1].index + 1)){
+            //iとi-1でshortcut2ならi-1優先
+            if(ret[i - 1].algorithm == 2)
+              ret.splice(i, 1);
+          }else if(ret[i].algorithm == 1 &&ret[i].index == (ret[i - 1].index + 1)){
+            //iでshortcut1で、i-1でshortcut1or2ならi-1優先
+            if(ret[i - 1].algorithm == 1 ||ret[i - 1].algorithm == 2)
+              ret.splice(i, 1);
+          }
+        }
+      }
+      return ret;
+    }
+  
+    applyShortcut1(i) {
+      this.route.splice(i + 1, 2)
+      //console.log("shortcut1 in (" + this.route[i].x + ", " + this.route[i].y + ")");
+      //console.log(this.route);
+    }
+  
+    applyShortcut2(i, prevPoint){
+      //const newPoint = new Point(this.route[i - 1].x, this.route[i - 1].y);
+      this.route[i + 1] = prevPoint;
+      //console.log("shortcut2 in (" + this.route[i].x + ", " + this.route[i].y + ")");
+      //console.log(this.route);
+    }
+  
+    applyZigzag(i){
+      //console.log("zigzag in (" + this.route[i].x + ", " + this.route[i].y + ")");
+      let newPointX;
+      let newPointY;
+      if(this.route[i].x == this.route[i - 1].x){
+        newPointX = this.route[i + 1].x;
+        newPointY = this.route[i - 1].y;
+      }else if(this.route[i].y == this.route[i - 1].y){
+        newPointX = this.route[i - 1].x;
+        newPointY = this.route[i + 1].y;
+      }
+      const newPoint = new Point(newPointX, newPointY);
+      this.route[i] = newPoint;
+      //console.log(this.route);
+    }
+  
+    drawRoute(ctx) {
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+
+      const passCount = Array.from({ length: 10 }, () => Array.from({ length: 10 }, () => []));
+      this.route.forEach((point, index) => {
+        const {x, y} = point;
+        passCount[x][y].push(index + 1);
+      })
+
+      for (let i = 0; i < this.route.length; i++){
+        const point = this.route[i];
+        ctx.lineTo(point.x * 50 + 25 + 25, point.y * 50 + 25 + 25);
+
+        ctx.fillStyle = '#e6e6e6';
+        ctx.font = 'bold 14px Consolas';
+        ctx.textAlign = "left";
+        const copy = this.route.slice(0, i);
+        if(copy.filter(p => p.x == point.x && p.y == point.y).length == 0)
+
+          for (let i = 0; i < passCount[point.x][point.y].length; i += 2) {
+            const firstElement = passCount[point.x][point.y][i];
+            const secondElement = passCount[point.x][point.y][i + 1];
+            
+            let text = firstElement.toString();
+            if(secondElement !== undefined){
+              text += ',' + secondElement.toString();
+            }
+            if(passCount[point.x][point.y].length > i + 2){
+              text += ',';
+            }
+            const dy = (Math.floor((passCount[point.x][point.y].length - 1) / 2) - i / 2) * 14;
+            ctx.fillText(text, point.x * 50 + 30 + 25, point.y * 50 + 20 + 25 - dy);
+          }
+      }
+  
+      ctx.stroke();
+
+      ctx.fillStyle = 'gray';
+      for(let i = 0; i < 10; i++){
+        for(let j = 0; j < 10; j++){
+          ctx.fillRect(i * 50 + 20 + 25, j * 50 + 20 + 25, 10, 10);
+        }
+      }
+  
+      if(this.route.length > 0){
+        const startPoint = this.route[0];
+        const endPoint = this.route[this.route.length - 1];
+    
+        ctx.fillStyle = 'red';
+        ctx.fillRect(startPoint.x * 50 + 20 + 25, startPoint.y * 50 + 20 + 25, 10, 10);
+        ctx.fillStyle = 'blue';
+        ctx.fillRect(endPoint.x * 50 + 20 + 25, endPoint.y * 50 + 20 + 25, 10, 10);
+      }
+    }  
+  }
+  
+  //最初に実行する部分
+  const canvas = document.getElementById('gridCanvas');
+  const ctx = canvas.getContext('2d');
+  
+  let grid = new Grid();
+  grid.initializeRoute();
+  let nextStepCount = 0;
+  let isOptimizing = false;
+  let currentPoint = -1;
+  let optPoints = [];
+  let isManual = false;
+  optPoints = grid.checkOptimize();
+  document.getElementById('undo').style.display = "none";
+  document.getElementById('reset').style.display = "none";
+
+  drawGrid();
+  routeInfo();
+  //console.log(grid.checkOptimize());
+
+  //ここまで
+  
+  function drawGrid(){
+    ctx.clearRect(0, 0, 550, 550);
+  
+    // グリッド線の描画
+    ctx.strokeStyle = 'gray';
+    ctx.fillStyle = '#e6e6e6';
+    ctx.font = 'bold 16px Consolas';
+    ctx.textAlign = "center";
+    ctx.lineWidth = 3;
+    for (let i = 0; i <= 11; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * 50 + 25, 0);
+      ctx.lineTo(i * 50 + 25, 500 + 50);
+      ctx.stroke();
+  
+      ctx.beginPath();
+      ctx.moveTo(0, i * 50 + 25);
+      ctx.lineTo(500 + 50, i * 50 + 25);
+      ctx.stroke();
+      
+      if(i < 10){
+        ctx.fillText(i, 11, (i + 1) * 50 + 5);
+        ctx.fillText(i, (i + 1) * 50, 17);
+      }
+    }
+    grid.drawRoute(ctx);
+  }
+
+  function drawCurrentPoint(){
+    ctx.fillStyle = 'red';
+    if(currentPoint >= 0 && currentPoint < grid.route.length){
+      ctx.fillRect(grid.route[currentPoint].x * 50 + 20 + 25 - 2, grid.route[currentPoint].y * 50 + 20 + 25 - 2, 14, 14);
+
+      if(grid.route[currentPoint].x == grid.route[0].x && grid.route[currentPoint].y == grid.route[0].y){
+        ctx.fillStyle = 'red';
+      }else if(grid.route[currentPoint].x == grid.route[grid.route.length - 1].x && grid.route[currentPoint].y == grid.route[grid.route.length - 1].y){
+        ctx.fillStyle = 'blue';
+      }else ctx.fillStyle = 'darkgray';
+
+      ctx.fillRect(grid.route[currentPoint].x * 50 + 20 + 25, grid.route[currentPoint].y * 50 + 20 + 25, 10, 10);
+    }
+  }
+
+  function drawNeighborPoint(point){
+    if(grid.route.length != 0){
+      grid.getNeighbors(point).forEach((p) =>{
+        ctx.fillStyle = 'green';
+        ctx.fillRect(p.x * 50 + 20 + 25 - 2, p.y * 50 + 20 + 25 - 2, 14, 14);
+        if(p.x == grid.route[0].x && p.y == grid.route[0].y)
+          ctx.fillStyle = 'red';
+        else ctx.fillStyle = 'darkgray';
+        ctx.fillRect(p.x * 50 + 20 + 25, p.y * 50 + 20 + 25, 10, 10);
+      });
+    }else{
+      for(let i = 0; i < 10; i++){
+        for(let j = 0; j < 10; j++){
+          ctx.fillStyle = 'green';
+          ctx.fillRect(i * 50 + 20 + 25 - 2, j * 50 + 20 + 25 - 2, 14, 14);
+          ctx.fillStyle = 'darkgray';
+          ctx.fillRect(i * 50 + 20 + 25, j * 50 + 20 + 25, 10, 10);
+      }
+      }
+    }
+  }
+
+  function toggleProcess(){
+    const button = document.getElementById("process");
+    if (button.textContent === "random") {
+        button.textContent = "sequential";
+    } else {
+        button.textContent = "random";
+    }
+  }
+  
+  function routeInfo(){
+    if(grid.route.length > 0){
+      document.getElementById("startPoint").textContent = `[${grid.route[0].x}, ${grid.route[0].y}]`;
+      document.getElementById("endPoint").textContent = `[${grid.route[grid.route.length - 1].x}, ${grid.route[grid.route.length - 1].y}]`;
+      if(currentPoint >= 0 && currentPoint < grid.route.length)
+        document.getElementById("currentPoint").textContent = `[${grid.route[currentPoint].x}, ${grid.route[currentPoint].y}]`;
+      document.getElementById("optimizeOrder").textContent = `${grid.order}`;
+      document.getElementById("routeDisplay").innerHTML = grid.route.map((point, index) => {
+        let str = '';
+        if(index == currentPoint)
+          str += "<u style = 'text-decoration:underline double; text-decoration-color:#FF0000;'>";
+        str += `[${point.x}, ${point.y}]`;
+        if(index == currentPoint)
+            str += "</u>";
+        if ((index + 1) % 5 === 0 && index !== grid.route.length - 1) {
+            str += " -> <br>";
+        } else if (index !== grid.route.length - 1) {
+            str += " -> ";
+        }
+        return str;
+      }).join("");
+
+      document.getElementById("optimizablePoints").innerHTML = optPoints.map((value, index) =>{
+        let str = '';
+        if(grid.checkOptimize().length != 0){
+          str += "<span id='indent1'>";
+          if(value.index < 9){
+            str += "<span class='space'></span>";
+          }
+          if(value.isExecuted)
+            str += "<s>";
+          if(value.index == currentPoint && !value.isExecuted)
+            str += "<u style = 'text-decoration:underline double; text-decoration-color:#FF0000;'>";
+
+          str += `${value.index + 1} : `;
+
+          switch(value.algorithm){
+            case 3:
+              str += "zigzag";
+              break;
+            case 2:
+              str += "shortcut2";
+              break;
+            case 1:
+              str += "shortcut1";
+              break;
+            default:
+              console.log("栗原ぁぁぁぁ！！！！！アルゴリズムねぇぞぉぉぉぉぉぉ！！！！！！！");
+          }
+          if(value.isExecuted)
+            str += "</s>";
+          if(value.index == currentPoint)
+            str += "</u>";
+          if((index + 1) % 3 === 0 && index != optPoints.length - 1){
+            str += "</span><br>";
+          }else if(index !== optPoints.length - 1){
+            str += "</span>";
+          }
+        }
+        return str;
+      }).join("");
+
+      if(grid.checkOptimize().length == 0 && !isManual){
+        document.getElementById("optimizablePoints").textContent = "!!!Optimize Completed!!!";
+      }
+    }else{
+      document.getElementById("startPoint").textContent = ``;
+      document.getElementById("endPoint").textContent = ``;
+      document.getElementById("currentPoint").textContent = ``;
+      document.getElementById("algorithm").textContent = "";
+      document.getElementById("optimizeOrder").textContent = `${grid.order}`;
+      document.getElementById("routeDisplay").textContent = "";
+      document.getElementById("optimizablePoints").textContent = "";
+    }
+  }
+
+  document.getElementById('change').addEventListener('click', function(){
+    if(grid.order == "random")
+      grid.order = "sequential";
+    else grid.order = "random";
+
+    routeInfo();
+  });
+  
+  document.getElementById('regenerate').addEventListener('click', function(){
+    tempOrder = grid.order;
+    grid = new Grid();
+    grid.initializeRoute();
+    currentPoint = -1;
+    optPoints.splice(0, optPoints.length);
+    optPoints = grid.checkOptimize();
+    isOptimizing = false;
+    nextStepCount = 0;
+    grid.order = tempOrder;
+    if(isManual){
+      isManual = false;
+      document.getElementById('undo').style.display = "none";
+      document.getElementById('reset').style.display = "none";
+    }
+    routeInfo();
+    drawGrid();
+    drawCurrentPoint();
+  });
+
+  document.getElementById('nextStep').addEventListener('click', function(){
+    if(isManual){
+      isManual = false;
+      document.getElementById('undo').style.display = "none";
+      document.getElementById('reset').style.display = "none";
+      drawGrid();
+    }
+    nextStepCount++;
+    if(nextStepCount % 2 == 1){
+      let isAllExecuted = true;
+      optPoints.forEach((value) =>{
+        if(!value.isExecuted)
+          isAllExecuted = false;
+      });
+      if(isAllExecuted){
+        optPoints = grid.checkOptimize();
+        /*
+        for(let i = 0; i < optPoints.length; i++){
+        console.log("index : " + optPoints[i].index + ", process : " + optPoints[i].algorithm);
+        }
+        for(let i = 0; i < grid.route.length; i++){
+          console.log("x : " + grid.route[i].x + ", y : " + grid.route[i].y);
+        }
+        */
+      }
+      
+      let i;
+      let algorithm;
+      let unoptimizedPoints = optPoints.filter(value => !value.isExecuted)
+      if( unoptimizedPoints.length > 0){
+        if(grid.order == "sequential"){
+          i =  unoptimizedPoints[0].index;
+          algorithm =  unoptimizedPoints[0].algorithm;
+          if(algorithm == 2)
+            prevPoint =  unoptimizedPoints[0].prevPoint;
+        }else if(grid.order == "random"){
+          let index = Math.floor(Math.random() * unoptimizedPoints.length);
+          i =  unoptimizedPoints[index].index;
+          algorithm =  unoptimizedPoints[index].algorithm;
+          if(algorithm == 2)
+            prevPoint =  unoptimizedPoints[index].prevPoint;
+        }
+
+        currentPoint = i;
+        drawCurrentPoint();
+        document.getElementById("currentPoint").textContent = `[${grid.route[currentPoint].x}, ${grid.route[currentPoint].y}]`;
+        routeInfo();
+
+        let algorithmStr = "";
+        switch(algorithm){
+          case 3:
+            grid.applyZigzag(i);
+            algorithmStr = "Zigzag";
+            break;
+          case 2:
+            grid.applyShortcut2(i, prevPoint);
+            algorithmStr = "Shortcut2";
+            break;
+          case 1:
+            grid.applyShortcut1(i);
+            algorithmStr = "Shortcut1";
+            for(let i = 0; i < optPoints.length; i++){
+              if(optPoints[i].index > currentPoint){
+                optPoints[i].index -= 2;
+              }
+            }
+            break;
+          default:
+            console.log("栗原ぁぁぁぁ！！！！！アルゴリズムねぇぞぉぉぉぉぉぉ！！！！！！！");
+        } 
+        document.getElementById("algorithm").textContent = `${algorithmStr}`;
+      }
+    }else{
+      for(let j = 0; j < optPoints.length; j++){
+          if(optPoints[j].index == currentPoint && !optPoints[j].isExecuted){
+            //よくない実装だけどshortcut1の例外があるから仕方ないね♂
+            optPoints[j].isExecuted = true;
+            break;
+          }
+      }
+      currentPoint = -1;
+      document.getElementById("currentPoint").textContent = "";
+      document.getElementById("algorithm").textContent = ``;
+      drawGrid();
+      routeInfo();
+    }
+  });
+
+  document.getElementById('automatic').addEventListener('click', function(){
+    const nextStep = document.getElementById('nextStep');
+    const clickEvent = new MouseEvent('click', {
+      view: window,
+      bubbles: true,
+      cancelable: true
+    });
+
+    if(isOptimizing){
+      isOptimizing = false;
+    }else{
+      isOptimizing = true;
+      
+      function optimize(){
+        //異常終了検知用
+        for(let i = 0; i < grid.route.length - 1; i++){
+            if(grid.route[i].x != grid.route[i + 1].x && grid.route[i].y != grid.route[i + 1].y)
+              isOptimizing = false;
+        }
+        
+        if(isOptimizing){
+          nextStep.dispatchEvent(clickEvent);
+          setTimeout(function(){
+            if(isOptimizing){
+              if(nextStepCount % 2 == 1)
+                nextStep.dispatchEvent(clickEvent);
+              if(grid.checkOptimize().length > 0)
+                optimize();
+              else isOptimizing = false;
+            }
+          }, 1000 - document.getElementById('speed').value);
+        }
+      }
+    }
+    optimize();
+  });
+
+  document.getElementById('manual').addEventListener('click', function(){
+    if(isManual){
+      isManual = false;
+      document.getElementById('undo').style.display = "none";
+      document.getElementById('reset').style.display = "none";
+      drawGrid();
+      routeInfo()
+    }else{
+      tempOrder = grid.order;
+      grid = new Grid();
+      currentPoint = -1;
+      optPoints.splice(0, optPoints.length);
+      isOptimizing = false;
+      nextStepCount = 0;
+      grid.order = tempOrder;
+      document.getElementById('undo').style.display = "inline-block";
+      document.getElementById('reset').style.display = "inline-block";
+      drawGrid();
+      drawNeighborPoint(new Point(0, 0));
+      routeInfo();
+      isManual = true;
+    }
+  });
+
+  canvas.addEventListener('click', (event) =>{
+    const rect = canvas.getBoundingClientRect();
+    const clickedX = event.clientX - rect.left;
+    const clickedY = event.clientY - rect.top;
+    const x = Math.floor((clickedX - 25) / 50);
+    const y = Math.floor((clickedY - 25) / 50);
+
+    if(isManual){
+      if(clickedX > 25 && clickedX < 525 && clickedY > 25 && clickedY < 525){
+        if(grid.route.length == 0){
+          let point = new Point(x, y);
+          grid.route.push(point);
+          drawGrid();
+          drawNeighborPoint(point);
+          optPoints = grid.checkOptimize();
+          routeInfo();
+        }else if(grid.getNeighbors(grid.route[grid.route.length - 1]).some(p => p.x == x && p.y == y)){
+          let point = new Point(x, y);
+          grid.route.push(point);
+          drawGrid();
+          drawNeighborPoint(point);
+          optPoints = grid.checkOptimize();
+          routeInfo()
+        }
+      }
+    }
+  });
+
+  document.getElementById('undo').addEventListener('click', function(){
+    if(isManual && grid.route.length > 0){
+      grid.route.pop();
+      drawGrid();
+      optPoints = grid.checkOptimize();
+      routeInfo()
+      if(grid.route.length > 0){
+        let point = new Point(grid.route[grid.route.length - 1].x, grid.route[grid.route.length - 1].y);
+        drawNeighborPoint(point);
+      }else
+        drawNeighborPoint(new Point(0, 0));
+    }
+  });
+
+  document.getElementById('reset').addEventListener('click', function(){
+    if(isManual){
+      grid = new Grid();
+      drawGrid();
+      optPoints = grid.checkOptimize();
+      drawNeighborPoint(new Point(0, 0));
+      routeInfo();
+    }
+  });
+  </script>
+</body>
+</html>
